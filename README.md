@@ -1,4 +1,13 @@
 # RT64
+
+> **Fork notice** — This is a personal fork maintained by [@mstan](https://github.com/mstan) for
+> personal tinkering and growth/development only, in support of the
+> [PokemonStadiumRecomp](https://github.com/mstan/PokemonStadiumRecomp) project.
+> It is **not** a definitive or authoritative source, may lag behind
+> upstream, and should not be relied upon as a substitute for the
+> official project. For canonical RT64, see
+> [rt64/rt64](https://github.com/rt64/rt64).
+
 RT64 is an N64 graphics renderer for playing games with enhancements in emulators and native ports.
 
 # Work in Progress

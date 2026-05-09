@@ -1,6 +1,19 @@
 //
 // RT64
 //
+// Modifications in this file by Matthew Stanley (mstan fork).
+// Distributed under the project's MIT License (see ../../../LICENSE).
+// Original file copyright remains with upstream RT64 contributors.
+//
+// Modified 2026 by Matthew Stanley:
+//   - Walk-time GDL CALL-target snapshot probe for capturing
+//     malformed display lists in the act.
+//   - interp_probe + control-flow event rings for live interpreter
+//     hang inspection.
+//
+// Copyright (c) 2026 Matthew Stanley
+//
+// ---------------------------------------------------------------------
 
 #include "rt64_interpreter.h"
 

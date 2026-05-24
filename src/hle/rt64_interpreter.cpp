@@ -235,11 +235,37 @@ namespace RT64 {
         interp_probe::g_task_index.fetch_add(1, std::memory_order_relaxed);
         interp_probe::g_dl_start.store(dlStartAdddress, std::memory_order_relaxed);
 
+        // Step watchdog: cap iterations per processDisplayLists call.
+        // A real DL is bounded (a frame's worth of geometry + state).
+        // 16M commands is far above any plausible single-frame DL and
+        // safely catches runaway loops where a malformed G_DL with a
+        // garbage target made the interpreter walk into wrong memory.
+        // When tripped, log + exit the task gracefully so dp_complete
+        // can fire and the game-thread doesn't softlock waiting for
+        // the renderer.
+        constexpr uint64_t MAX_STEPS_PER_TASK = 16ULL * 1024 * 1024;
+
         // Run the command interpreter.
         DisplayList *dl = dlStart;
         uint8_t opCode;
         GBIFunction func;
         while (dl != nullptr) {
+            if (interp_probe::g_step.load(std::memory_order_relaxed) >= MAX_STEPS_PER_TASK) {
+                static std::atomic<int> s_tripped{0};
+                int n = s_tripped.fetch_add(1);
+                if (n < 8) {
+                    fprintf(stderr,
+                        "[rt64-interp] STEP WATCHDOG tripped at %llu cmds "
+                        "(dlStart=0x%08X, task=%llu). Aborting task to "
+                        "prevent renderer softlock. (%dth trip)\n",
+                        (unsigned long long)MAX_STEPS_PER_TASK,
+                        dlStartAdddress,
+                        (unsigned long long)interp_probe::g_task_index.load(),
+                        n + 1);
+                    fflush(stderr);
+                }
+                break;
+            }
             // Probe: record this DL's pointer in the always-on ring
             const uint64_t s = interp_probe::g_seq.fetch_add(1, std::memory_order_relaxed);
             interp_probe::g_ring_pc[s % interp_probe::RING_CAP] =

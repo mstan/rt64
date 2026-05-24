@@ -74,11 +74,71 @@ namespace RT64 {
         }
 
         void runDl(State *state, DisplayList **dl) {
-            if ((*dl)->p0(16, 1) == 0) {
+            const uint32_t w0 = (*dl)->w0;
+            const uint32_t w1 = (*dl)->w1;
+
+            // Validate G_DL command structure. A real G_DL has
+            // w0 = 0xDE PP 00 00 where PP is the push flag (0 = CALL,
+            // 1 = BRANCH). Pad bits (low 16, plus bits 17-23) must be 0.
+            //
+            // When a game emits a G_DL into a buffer that's been
+            // repurposed (UAF / race in game-side gfx pool management —
+            // e.g. Pokemon Stadium attract-demo 2026-05-23 traced to
+            // G_DL targeting compressed-image bytes), the first byte
+            // of garbage often happens to be 0xDE, and the GBI
+            // dispatcher hits this handler thinking it's a real G_DL.
+            // Following the garbage target leads to runaway interpreter
+            // loops on host memory past RDRAM bounds — the renderer
+            // never returns dp_complete, the game-thread waits forever.
+            //
+            // Reject malformed G_DL commands so the outer interpreter
+            // loop advances past them (dl++) rather than following into
+            // garbage. The game-side bug still exists but no longer
+            // softlocks the runner.
+            if ((w0 & 0xFFFEFFFFu) != 0xDE000000u) {
+                // Stderr instead of RT64_LOG_PRINTF — the latter is a no-op
+                // in Release. Cap to first N occurrences to avoid log spam
+                // when a corrupted DL spawns many malformed G_DLs in a row.
+                static std::atomic<int> s_skipped{0};
+                int n = s_skipped.fetch_add(1);
+                if (n < 32) {
+                    fprintf(stderr,
+                        "[rt64-runDl] SKIP malformed G_DL w0=0x%08X w1=0x%08X "
+                        "(pad bits non-zero; %dth skip)\n",
+                        w0, w1, n + 1);
+                    fflush(stderr);
+                }
+                return;
+            }
+
+            const bool isCall = ((w0 & 0x00010000u) == 0);
+            if (isCall) {
                 state->pushReturnAddress(*dl);
             }
 
-            const uint32_t rdramAddress = state->rsp->fromSegmentedMasked((*dl)->w1);
+            // Resolve target via segment table, then bounds-check
+            // against RDRAM size. fromRDRAM does NOT mask; an OOB
+            // address produces a host pointer in adjacent process
+            // memory (heap / code / etc) and the interpreter walks
+            // that forever.
+            const uint32_t rdramAddress = state->rsp->fromSegmentedMasked(w1);
+            if (rdramAddress >= RDRAMSize) {
+                static std::atomic<int> s_oob{0};
+                int n = s_oob.fetch_add(1);
+                if (n < 32) {
+                    fprintf(stderr,
+                        "[rt64-runDl] SKIP G_DL OOB target w1=0x%08X resolved=0x%X "
+                        "RDRAMSize=0x%X (%dth skip)\n",
+                        w1, rdramAddress, RDRAMSize, n + 1);
+                    fflush(stderr);
+                }
+                // Balance the stack if we pushed above.
+                if (isCall) {
+                    state->popReturnAddress();
+                }
+                return;
+            }
+
             *dl = reinterpret_cast<DisplayList *>(state->fromRDRAM(rdramAddress)) - 1;
         }
 

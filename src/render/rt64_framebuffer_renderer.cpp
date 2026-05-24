@@ -4,6 +4,8 @@
 
 #include "rt64_framebuffer_renderer.h"
 
+#include <cstdlib>
+
 #include "../include/rt64_extended_gbi.h"
 
 #include "common/rt64_elapsed_timer.h"
@@ -583,7 +585,21 @@ namespace RT64 {
                 }
                 
                 if (previousViewport != triangles.viewport) {
-                    rasterParams.halfPixelOffset = { 1.0f / triangles.viewport.width, -1.0f / triangles.viewport.height};
+                    // A/B experiment for fragment-57 Vtx-grid seam diagnosis
+                    // in recompiled N64 titles (Pokemon Stadium hypothesis A
+                    // per project_rt64_seam_arc_kickoff_2026_05_23): does
+                    // zeroing halfPixelOffset make sub-pixel seams between
+                    // adjacent quads vanish? Reads env once; the cached
+                    // static-bool check is essentially free per draw.
+                    static const bool s_disableHalfPixel = []() {
+                        const char* env = std::getenv("RT64_DISABLE_HALF_PIXEL");
+                        return env != nullptr && env[0] != '\0' && env[0] != '0';
+                    }();
+                    if (s_disableHalfPixel) {
+                        rasterParams.halfPixelOffset = { 0.0f, 0.0f };
+                    } else {
+                        rasterParams.halfPixelOffset = { 1.0f / triangles.viewport.width, -1.0f / triangles.viewport.height};
+                    }
                     worker->commandList->setViewports(triangles.viewport);
                     previousViewport = triangles.viewport;
                 }

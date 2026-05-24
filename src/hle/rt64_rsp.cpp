@@ -29,6 +29,7 @@
 
 #include "rt64_interpreter.h"
 #include "rt64_state.h"
+#include "rt64_vtx_ring.hpp"
 
 //#define LOG_SPECIAL_MATRIX_OPERATIONS
 
@@ -1085,6 +1086,21 @@ namespace RT64 {
                     fbPair.drawDepthRect.merge(drawRect);
                 }
             }
+        }
+
+        // Always-on triangle vertex capture for sub-pixel seam analysis
+        // (Pokemon Stadium fragment-57 arc + any future title that hits
+        // adjacent-quad shared-edge bugs). Captures the same posScreen
+        // values the drawRect logic above reads — i.e., N64-pixel
+        // screen-space coords after MVP transform, perspective divide,
+        // and viewport scale. Disable with RT64_VTX_RING_DISABLE=1.
+        {
+            const hlslpp::float3 &p0 = posScreen[globalIndices[0]];
+            const hlslpp::float3 &p1 = posScreen[globalIndices[1]];
+            const hlslpp::float3 &p2 = posScreen[globalIndices[2]];
+            vtxRingPush(p0[0], p0[1], p0[2],
+                        p1[0], p1[1], p1[2],
+                        p2[0], p2[1], p2[2]);
         }
 
         drawCall.triangleCount++;

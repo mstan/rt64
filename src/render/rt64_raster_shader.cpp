@@ -328,6 +328,15 @@ namespace RT64 {
         pipelineDesc.pixelShader = c.pixelShader;
         pipelineDesc.specConstants = c.specConstants.data();
         pipelineDesc.specConstantsCount = uint32_t(c.specConstants.size());
+        // Conservative rasterization on the N64 triangle PSO eliminates
+        // sub-pixel seams between adjacent quads at high render scale
+        // (the renderer-side equivalent of per-game vertex-overlap hacks
+        // used by recompiled N64 titles to mask the same artifact).
+        // RT64_CONSERVATIVE_RASTER=0 is a force-OFF escape hatch in the
+        // backend if a specific workload regresses. Backends without
+        // conservative-raster plumbing (Vulkan, Metal) treat this as
+        // a no-op for now.
+        pipelineDesc.conservativeRasterEnabled = true;
 
         // Alpha blending is performed by using dual source blending. The blending factor will be in the secondary output.
         RenderBlendDesc &targetBlend = pipelineDesc.renderTargetBlend[0];

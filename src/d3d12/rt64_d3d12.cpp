@@ -4,6 +4,7 @@
 
 #include "rt64_d3d12.h"
 
+#include <cstdlib>
 #include <unordered_set>
 
 #ifdef __clang__
@@ -2672,6 +2673,22 @@ namespace RT64 {
         psoDesc.PrimitiveTopologyType = toTopologyType(desc.primitiveTopology);
         psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
         psoDesc.RasterizerState.DepthClipEnable = desc.depthClipEnabled;
+
+        // Conservative rasterization is enabled by per-PSO opt-in (see
+        // RasterShader::createPipeline for the actual N64 triangle PSO).
+        // RT64_CONSERVATIVE_RASTER=0 is a force-OFF escape hatch — useful
+        // if a recompiled-title workload is sensitive to overcoverage
+        // (alpha blending, edge-precise sprite atlases, etc.). Read env
+        // once and cache.
+        if (desc.conservativeRasterEnabled) {
+            static const bool s_forceOff = []() {
+                const char* env = std::getenv("RT64_CONSERVATIVE_RASTER");
+                return env != nullptr && (env[0] == '0' || env[0] == 'f' || env[0] == 'F');
+            }();
+            if (!s_forceOff) {
+                psoDesc.RasterizerState.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_ON;
+            }
+        }
 
         switch (desc.cullMode) {
         case RenderCullMode::NONE:

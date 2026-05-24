@@ -1179,6 +1179,17 @@ namespace RT64 {
         bool depthWriteEnabled = false;
         bool logicOpEnabled = false;
         bool alphaToCoverageEnabled = false;
+        // Conservative rasterization: the GPU covers every pixel any
+        // part of a triangle touches, ignoring tie-break rules at
+        // shared edges. Renderer-side equivalent of the per-game
+        // adjacent-quad-overlap hacks used to mask sub-pixel seams in
+        // recompiled N64 titles. Backends:
+        //   D3D12 — wired via D3D12_CONSERVATIVE_RASTERIZATION_MODE_ON.
+        //           Requires Tier 1+ hardware (all D3D12 GPUs from ~2015).
+        //   Vulkan — TODO: VK_EXT_conservative_rasterization plumbing.
+        //   Metal  — TODO: setConservativeRaster pipeline state.
+        // Backends that don't yet plumb it treat the field as a no-op.
+        bool conservativeRasterEnabled = false;
     };
 
     struct RenderRaytracingPipelineLibrarySymbol {

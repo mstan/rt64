@@ -364,6 +364,7 @@ set (SOURCES
     "${PROJECT_SOURCE_DIR}/src/hle/rt64_rigid_body.cpp"
     "${PROJECT_SOURCE_DIR}/src/hle/rt64_rsp.cpp"
     "${PROJECT_SOURCE_DIR}/src/hle/rt64_state.cpp"
+    "${PROJECT_SOURCE_DIR}/src/hle/rt64_tmem_ring.cpp"
     "${PROJECT_SOURCE_DIR}/src/hle/rt64_vi.cpp"
     "${PROJECT_SOURCE_DIR}/src/hle/rt64_vtx_ring.cpp"
     "${PROJECT_SOURCE_DIR}/src/hle/rt64_workload.cpp"

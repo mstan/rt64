@@ -14,6 +14,7 @@
 #include "rt64_color_converter.h"
 #include "rt64_interpreter.h"
 #include "rt64_state.h"
+#include "rt64_tmem_ring.hpp"
 
 #ifndef NDEBUG
 //#   define ASSERT_LOAD_METHODS
@@ -478,6 +479,10 @@ namespace RT64 {
             else {
                 loadToTMEMCommon<false>(TMEM8, RDRAM, textureStart, bytesPerRow, tmemStart, tmemStride, wordsPerRow, rowCount);
             }
+            // Always-on TMEM-load ring (cursor/icon corruption diagnosis).
+            tmemRingPush(TMEM_OP_TILE, 0, loadTile.fmt, loadTile.siz, tmemStart,
+                rowCount * tmemStride, textureStart, textureEnd - textureStart,
+                loadTexture.address, loadTexture.width, rowCount, wordsPerRow, RDRAM);
         }
     }
 
@@ -514,6 +519,10 @@ namespace RT64 {
             else {
                 loadToTMEMCommon<false, true>(TMEM8, RDRAM, textureStart, bytesPerRow, tmemStart, tmemStride, wordCount, 1, loadTile.lrt);
             }
+            // Always-on TMEM-load ring (cursor/icon corruption diagnosis).
+            tmemRingPush(TMEM_OP_BLOCK, 0, loadTile.fmt, loadTile.siz, tmemStart,
+                wordCount << 3, textureStart, textureEnd - textureStart,
+                loadTexture.address, loadTexture.width, 1, wordCount, RDRAM);
         }
     }
 
@@ -554,6 +563,11 @@ namespace RT64 {
             else {
                 loadToTMEMCommon<false, false, true>(TMEM8, RDRAM, textureStart, bytesPerRow, tmemStart, tmemStride, wordsPerRow, rowCount);
             }
+            // Always-on TMEM-load ring (cursor/icon corruption diagnosis).
+            const uint32_t tlutEnd = textureStart + (rowCount - 1) * bytesPerRow + (wordsPerRow << 3);
+            tmemRingPush(TMEM_OP_TLUT, 0, loadTile.fmt, loadTile.siz, tmemStart,
+                rowCount * tmemStride, textureStart, tlutEnd - textureStart,
+                loadTexture.address, loadTexture.width, rowCount, wordsPerRow, RDRAM);
         }
     }
 
@@ -1275,7 +1289,21 @@ namespace RT64 {
             drawCall.textureLevels = 1;
             state->updateDrawStatusAttribute(DrawAttribute::Texture);
         }
-        
+
+        // Sprite-draw ring (cursor/icon corruption diagnosis): map this
+        // on-screen texrect to its texture source = the most-recent
+        // recorded load operation (command order is setTImg -> loadBlock
+        // -> setTile -> texrect, so back() is this sprite's load).
+        {
+            const int wlCursor = state->ext.workloadQueue->writeCursor;
+            Workload &wl = state->ext.workloadQueue->workloads[wlCursor];
+            uint32_t srcAddr = 0;
+            if (!wl.drawData.loadOperations.empty()) {
+                srcAddr = wl.drawData.loadOperations.back().texture.address;
+            }
+            spriteRingPush(ulx, uly, lrx, lry, tile, srcAddr);
+        }
+
         // Divide dsdx by 4 and add an extra pixel to the edges if it uses copy mode.
         const bool usesCopyMode = (otherMode.cycleType() == G_CYC_COPY);
         if (usesCopyMode) {

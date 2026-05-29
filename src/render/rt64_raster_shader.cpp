@@ -335,8 +335,9 @@ namespace RT64 {
         // RT64_CONSERVATIVE_RASTER=0 is a force-OFF escape hatch in the
         // backend if a specific workload regresses. Backends without
         // conservative-raster plumbing (Vulkan, Metal) treat this as
-        // a no-op for now.
-        pipelineDesc.conservativeRasterEnabled = true;
+        // a no-op for now. Per-PSO: enabled for triangle draws, disabled
+        // for the rect variant (see PipelineCreation::conservativeRaster).
+        pipelineDesc.conservativeRasterEnabled = c.conservativeRaster;
 
         // Alpha blending is performed by using dual source blending. The blending factor will be in the secondary output.
         RenderBlendDesc &targetBlend = pipelineDesc.renderTargetBlend[0];
@@ -487,6 +488,10 @@ namespace RT64 {
             creation.zCmp = i & (1 << 0);
             creation.zUpd = i & (1 << 1);
             creation.cvgAdd = i & (1 << 2);
+            // Bit 3 selects conservative rasterization. The non-conservative
+            // half (bit 3 = 0) is used for rect-projection draws so their
+            // shared diagonal isn't double-covered (transition-fade seam).
+            creation.conservativeRaster = i & (1 << 3);
 
             pipelineThreadCreations[threadIndex].emplace_back(creation);
             threadIndex = (threadIndex + 1) % threadCount;
@@ -579,7 +584,7 @@ namespace RT64 {
         }
 
         for (const PipelineCreation &creation : pipelineThreadCreations[threadIndex]) {
-            uint32_t pipelineIndex = pipelineStateIndex(creation.zCmp, creation.zUpd, creation.cvgAdd);
+            uint32_t pipelineIndex = pipelineStateIndex(creation.zCmp, creation.zUpd, creation.cvgAdd, creation.conservativeRaster);
 
             if (pipelineIndex == 0) {
                 firstPipelineMutex.lock();
@@ -607,14 +612,15 @@ namespace RT64 {
         }
     }
 
-    uint32_t RasterShaderUber::pipelineStateIndex(bool zCmp, bool zUpd, bool cvgAdd) const {
+    uint32_t RasterShaderUber::pipelineStateIndex(bool zCmp, bool zUpd, bool cvgAdd, bool conservative) const {
         return
             (uint32_t(zCmp)         << 0) |
             (uint32_t(zUpd)         << 1) |
-            (uint32_t(cvgAdd)       << 2);
+            (uint32_t(cvgAdd)       << 2) |
+            (uint32_t(conservative) << 3);
     }
 
-    const RenderPipeline *RasterShaderUber::getPipeline(bool zCmp, bool zUpd, bool cvgAdd) const {
-        return pipelines[pipelineStateIndex(zCmp, zUpd, cvgAdd)].get();
+    const RenderPipeline *RasterShaderUber::getPipeline(bool zCmp, bool zUpd, bool cvgAdd, bool conservative) const {
+        return pipelines[pipelineStateIndex(zCmp, zUpd, cvgAdd, conservative)].get();
     }
 };

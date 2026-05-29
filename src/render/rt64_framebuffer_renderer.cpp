@@ -1616,16 +1616,36 @@ namespace RT64 {
                         auto &triangles = instanceDrawCall.triangles;
                         triangles.shaderDesc = call.shaderDesc;
 
-                        RasterShader *gpuShader = p.ubershadersOnly ? nullptr : p.rasterShaderCache->getGPUShader(call.shaderDesc);
+                        // Conservative rasterization closes sub-pixel gaps
+                        // between adjacent emulated triangles (the fragment-57
+                        // HUD Vtx grids). It must be turned OFF for
+                        // self-contained ALPHA-BLENDED quads -- rects AND the
+                        // game's fullscreen transition-fade quad (2 alpha
+                        // triangles) -- because it covers their shared diagonal
+                        // from BOTH triangles and double-blends it, producing
+                        // the corner-to-corner transition seam. (Opaque draws
+                        // double-cover invisibly, so this is gated on alpha.)
+                        // Route those through the uber non-conservative variant
+                        // (bypassing any specialized conservative PSO); opaque
+                        // triangle geometry keeps conservative raster so HUD
+                        // grid seams stay closed.
+                        // NOTE (quick swing): this gates on alpha-blend broadly.
+                        // If it over-reaches (3D-alpha seams / perf), narrow to
+                        // a fullscreen-coverage test via the draw-signature ring.
+                        const bool copyMode = (call.shaderDesc.otherMode.cycleType() == G_CYC_COPY);
+                        const bool isRect = (proj.type == Projection::Type::Rectangle);
+                        const bool alphaBlend = !copyMode && interop::Blender::usesAlphaBlend(call.shaderDesc.otherMode);
+                        const bool noConservative = isRect || alphaBlend;
+                        RasterShader *gpuShader = (p.ubershadersOnly || noConservative) ? nullptr : p.rasterShaderCache->getGPUShader(call.shaderDesc);
                         if (gpuShader != nullptr) {
                             triangles.pipeline = gpuShader->pipeline.get();
                         }
                         else {
-                            const bool copyMode = (call.shaderDesc.otherMode.cycleType() == G_CYC_COPY);
                             triangles.pipeline = rasterShaderUber->getPipeline(
                                 !copyMode && call.shaderDesc.otherMode.zCmp() && (call.shaderDesc.otherMode.zMode() != ZMODE_DEC),
                                 !copyMode && call.shaderDesc.otherMode.zUpd(),
-                                (call.shaderDesc.otherMode.cvgDst() == CVG_DST_WRAP) || (call.shaderDesc.otherMode.cvgDst() == CVG_DST_SAVE));
+                                (call.shaderDesc.otherMode.cvgDst() == CVG_DST_WRAP) || (call.shaderDesc.otherMode.cvgDst() == CVG_DST_SAVE),
+                                /* conservative */ !noConservative);
                         }
                         
                         triangles.faceCount = call.callDesc.triangleCount;

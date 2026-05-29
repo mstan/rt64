@@ -51,6 +51,15 @@ namespace RT64 {
         bool zUpd;
         bool cvgAdd;
         bool usesHDR;
+        // Conservative rasterization closes sub-pixel gaps between adjacent
+        // emulated TRIANGLES (e.g. fragment-57 HUD Vtx grids). It must NOT be
+        // applied to N64 rectangles: a rect is one self-contained quad whose
+        // two triangles share an exact diagonal that standard rasterization
+        // already covers once; conservative raster covers that diagonal from
+        // BOTH triangles, double-blending it on alpha-blended rects and
+        // producing a corner-to-corner seam on fullscreen transition fades.
+        // Rect-projection draws are routed to a variant with this false.
+        bool conservativeRaster = true;
         std::vector<RenderSpecConstant> specConstants;
         RenderMultisampling multisampling;
     };
@@ -78,7 +87,10 @@ namespace RT64 {
         static const uint64_t RasterVSLibraryHash;
         static const uint64_t RasterPSLibraryHash;
 
-        std::unique_ptr<RenderPipeline> pipelines[8];
+        // Indexed by pipelineStateIndex(zCmp, zUpd, cvgAdd, conservative):
+        // bits 0-2 are the depth/coverage state, bit 3 is conservative raster.
+        // The non-conservative half (bit 3 = 0) is used for rect draws.
+        std::unique_ptr<RenderPipeline> pipelines[16];
         std::unique_ptr<RenderPipeline> postBlendDitherNoiseAddPipeline;
         std::unique_ptr<RenderPipeline> postBlendDitherNoiseSubPipeline;
         std::unique_ptr<RenderPipeline> postBlendDitherNoiseSubNegativePipeline;
@@ -95,7 +107,7 @@ namespace RT64 {
         ~RasterShaderUber();
         void threadCreatePipelines(uint32_t threadIndex);
         void waitForPipelineCreation();
-        uint32_t pipelineStateIndex(bool zCmp, bool zUpd, bool cvgAdd) const;
-        const RenderPipeline *getPipeline(bool zCmp, bool zUpd, bool cvgAdd) const;
+        uint32_t pipelineStateIndex(bool zCmp, bool zUpd, bool cvgAdd, bool conservative) const;
+        const RenderPipeline *getPipeline(bool zCmp, bool zUpd, bool cvgAdd, bool conservative) const;
     };
 };

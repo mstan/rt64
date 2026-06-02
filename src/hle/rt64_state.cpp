@@ -1832,8 +1832,16 @@ namespace RT64 {
                 lastScreenFactorCounter++;
             }
 
-            // We ignore processing the updateScreen altogether in early present mode.
-            if (presentEarly) {
+            // We ignore processing the updateScreen altogether in early present mode
+            // only when RT64 is tracking the VI framebuffer. Some ucodes update the
+            // VI buffer directly through RSP DMA, bypassing display-list framebuffer
+            // tracking; those still need the raw VI storage path below.
+            Framebuffer *earlyPresentFb = viVisible ? framebufferManager.find(screenFbAddress) : nullptr;
+            const bool earlyPresentTrackedFb =
+                (earlyPresentFb != nullptr) &&
+                (screenFbSize.x == earlyPresentFb->width) &&
+                (screenFbSiz == earlyPresentFb->siz);
+            if (presentEarly && earlyPresentTrackedFb) {
                 return;
             }
         }

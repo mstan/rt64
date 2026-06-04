@@ -463,6 +463,19 @@ namespace RT64 {
             return false;
         }
 
+        if ((fb->lastWriteType == Framebuffer::Type::None) || fb->lastWriteRect.isNull()) {
+            return false;
+        }
+
+        const FixedRect tileRect(
+            static_cast<int32_t>(outTile.left) << 2,
+            static_cast<int32_t>(outTile.top) << 2,
+            static_cast<int32_t>(outTile.right) << 2,
+            static_cast<int32_t>(outTile.bottom) << 2);
+        if (!fb->lastWriteRect.fullyInside(tileRect)) {
+            return false;
+        }
+
         // Define the tile.
         outTile.lineWidth = (lineWidth > 0) ? lineWidth : (outTile.right - outTile.left);
         outTile.address = fb->addressStart;

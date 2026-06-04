@@ -327,7 +327,7 @@ namespace RT64 {
                         return (lrPixel - ulPixel) == maskSize;
                     };
 
-                    bool nativeSamplerSupported = true;
+                    bool nativeSamplerSupported = false;
                     if ((tile.masks > 0) && (tile.cms & G_TX_CLAMP)) {
                         nativeSamplerSupported = nativeSamplerSupported && clampAlignedToMask(tile.masks, tile.uls, tile.lrs);
                     }

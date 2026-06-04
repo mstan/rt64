@@ -120,7 +120,7 @@ namespace RT64 {
         tileCopy.left = std::clamp<long>(lround(fbTile.left * resolutionScale.x), 0, RenderTarget::MaxDimension);
         tileCopy.top = std::clamp<long>(lround(fbTile.top * resolutionScale.y), 0, RenderTarget::MaxDimension);
         tileCopy.ulScaleS = true;
-        tileCopy.ulScaleS = true;
+        tileCopy.ulScaleT = true;
         tileCopy.texelShift = { 0, 0 };
         tileCopy.texelMask = { UINT_MAX, UINT_MAX };
         tileCopy.ditherOffset = { tileCopy.left, tileCopy.top };
@@ -271,7 +271,7 @@ namespace RT64 {
         TileCopy &dstTile = tileCopies[op.reinterpretTile.dstId];
         dstTile.id = op.reinterpretTile.dstId;
         dstTile.ulScaleS = op.reinterpretTile.ulScaleS;
-        dstTile.ulScaleS = op.reinterpretTile.ulScaleS;
+        dstTile.ulScaleT = op.reinterpretTile.ulScaleT;
         dstTile.texelShift = op.reinterpretTile.texelShift;
         dstTile.texelMask = op.reinterpretTile.texelMask;
         dstTile.usedWidth = dstTileWidth;

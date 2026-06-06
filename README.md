@@ -1,22 +1,29 @@
 # RT64
 
-> **Fork notice** — This fork is maintained under the
-> [SS Anne](https://github.com/ss-anne) organization as part of the
-> [PokemonStadiumRecomp](https://github.com/ss-anne/PokemonStadiumRecomp)
-> project ecosystem. Changes here exist to support that port; they
-> may lag behind upstream and are not intended as a replacement for
-> the canonical project. For canonical RT64, see
-> [rt64/rt64](https://github.com/rt64/rt64).
+> **Fork notice** — This is a fork maintained as part of **SS Anne**, a
+> [Pokémon Stadium recompilation project](https://github.com/mstan/PokemonStadiumRecomp).
+> The changes here exist to support that port; they may lag behind
+> upstream and are not intended as a replacement for the canonical
+> project. For canonical RT64, see [rt64/rt64](https://github.com/rt64/rt64).
+
+## Changes in this fork
+
+RT64 is the graphics renderer. These changes fix the specific ways
+Pokémon Stadium rendered wrong:
+
+- **Removes stray lines on 2D menus** — the diagonal line that cut across
+  screen-fade transitions, and the seams between adjacent menu tiles —
+  without disturbing the HUD.
+- **Fixes menu panels that drew with missing or wrong-height fill.**
+- **Fixes a freeze during the attract/demo sequence** caused by a bad
+  graphics command, and adds a safety check so a bad command can't hang
+  the renderer.
+- **Lets Game Boy Tower show its picture** — it pushes frames to the
+  screen in an unusual way that wasn't being displayed.
+- **Smaller things:** always-on debugging instrumentation used to track
+  down the glitches above; records which files were modified.
 
 RT64 is an N64 graphics renderer for playing games with enhancements in emulators and native ports.
-
-# Work in Progress
-
-### **Emulator Support (Plugin) and Ray Tracing (RT) are not available in this repository yet.**
-
-This repository has been made public to provide a working implementation to native ports that wish to use RT64 as their renderer.
-
-**Development of these features is still ongoing and will be added to this repository when they're ready.** Thank you for your patience!
 
 # Features available
 * Modern N64 renderer built on the latest APIs (D3D12, Vulkan and Metal).
@@ -30,21 +37,6 @@ This repository has been made public to provide a working implementation to nati
 * Extended command set for better integration of widescreen, interpolation and path tracing features (for use with rom patches, rom hacks, and ports).
 * Texture packs with DDS and asynchronous streaming support. Compatible with Rice filenames. [Read about how to make texture packs for RT64 here](TEXTURE-PACKS.md).
 * Supports Windows 10, Windows 11, Linux and macOS.
-
-# Features in development (in priority order)
-* Fully path traced renderer (RT).
-  * Calculate all lighting in real time and replace the contents of the drawn scene entirely with a path traced version.
-  * Provide support for extra modifications for altering the material properties of the surfaces in the game.
-  * Game support will be limited to a very small selection of games initially.
-* Model replacements.
-  * Details to be determined.
-* Game script interpreter.
-  * Support a runtime language for configuring the path traced renderer based on the contents of the game's memory.
-  * Support patching the game's memory to provide various enhancements automatically integrated with the game script.
-* Emulator integration.
-  * Game compatibility database and feature whitelist.
-  * Configuration screen.
-  * List of supported emulators to be determined.
 
 # Building
 
@@ -69,7 +61,7 @@ All vertex transformations by the RSP (e.g. position, lighting, texturing, etc.)
 ## Texture Decoder (Compute)
 RT64 does not decode textures on the CPU and instead opts for uploading TMEM (4 KB) directly to the GPU. If possible, a RGBA32 version of the texture will be decoded and cached using a compute shader. If the sampling parameters prove to be too troublesome for that (e.g. giant texture masks with no clamp due to bad configuration), then RT64 can sample TMEM directly just like the console with a small performance sacrifice.
 
-RT64 features one of the most accurate TMEM loaders to date so far which has been directly reverse engineered by observing console behavior with the aid of homebrew test ROMs developed by [Wiseguy](https://github.com/Mr-Wiseguy). All the color conversion formulas for decoding have also been sourced from [Tharo](https://github.com/Thar0)'s excellent RDP research.
+RT64 features one of the most accurate TMEM loaders to date so far, directly reverse engineered by observing console behavior with the aid of homebrew test ROMs. All the color conversion formulas for decoding have also been sourced from [Tharo](https://github.com/Thar0)'s excellent RDP research.
 
 ## Dual renderers
 RT64 takes advantage of the multi-threaded capabilities of modern APIs to run two renderers at the same time with highly different goals. One renderer draws at native resolution (e.g. 240p) and synchronizes back immediately with the game running at its original rate. The other renderer replays all the draw calls detected by the main renderer at higher resolution and even at a different rate when using interpolation. This design guarantees that the game will see the correct data in RAM, which is very important for games that read from these memory regions for gameplay reasons. If it's not required by the game, this native resolution renderer can be turned off completely to save performance.

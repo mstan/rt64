@@ -15,6 +15,15 @@ Pokémon Stadium rendered wrong:
   screen-fade transitions, and the seams between adjacent menu tiles —
   without disturbing the HUD.
 - **Fixes menu panels that drew with missing or wrong-height fill.**
+- **Lets the game be supersampled without breaking the 2D menus.** A
+  single screen is composited from several framebuffer layers of
+  different heights. The tall-framebuffer resolution-scale reduction
+  used to be decided *per layer*, so a tall 2D menu layer was halved to
+  a different scale than its companion layers and the menus/HUD drew
+  over-scaled and clipped under supersampling. The decision is now made
+  **once per frame from the tallest framebuffer and applied uniformly to
+  every layer**, so all layers composite at one scale and 2D menus stay
+  correct at any internal resolution.
 - **Fixes a freeze during the attract/demo sequence** caused by a bad
   graphics command, and adds a safety check so a bad command can't hang
   the renderer.

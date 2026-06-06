@@ -355,6 +355,22 @@ namespace RT64 {
         for (uint32_t w = 0; w < curFrame.workloads.size(); w++) {
             Workload &workload = workloads[curFrame.workloads[w]];
 
+            // ISSUE #12: Decide the tall-framebuffer resolution-scale reduction ONCE per
+            // workload, from the tallest framebuffer drawn this frame, and apply the same
+            // decision to EVERY framebuffer pair below. A per-pair decision desynced the
+            // resolution scale between layers that compose a single screen (the 640x476 menu
+            // layer was halved to 3x while its 320x240 companion layers stayed at 6x), so the
+            // layers composited at mismatched scales and the 2D menu/HUD rendered over-scaled.
+            const int referenceMiddleHeight = (ReferenceHeight + ReferenceInterlacedHeight) / 2;
+            uint32_t workloadMaxColorHeight = 0;
+            for (uint32_t f = 0; f < workload.fbPairCount; f++) {
+                const FramebufferPair &heightPair = workload.fbPairs[f];
+                if (!heightPair.drawColorRect.isEmpty()) {
+                    workloadMaxColorHeight = std::max(workloadMaxColorHeight, uint32_t(heightPair.drawColorRect.bottom(true)));
+                }
+            }
+            const bool workloadHalveTall = (workloadMaxColorHeight >= uint32_t(referenceMiddleHeight));
+
             // There's no guarantee the RSP was processed if framebuffers were not rendered.
             const bool processRSP = true;
             if (processRSP) {
@@ -408,10 +424,12 @@ namespace RT64 {
                     nativeColorWidth = colorImg.width;
                     nativeColorHeight = fbPair.drawColorRect.bottom(true);
 
-                    // When the target is much bigger than the reference height, we reduce the resolution scaling (but clamped to 1.0).
-                    const int referenceMiddleHeight = (ReferenceHeight + ReferenceInterlacedHeight) / 2;
+                    // When the screen's tallest framebuffer is much bigger than the reference
+                    // height, we reduce the resolution scaling (clamped to 1.0). Decided once
+                    // per workload (workloadHalveTall) and applied to every pair so all layers
+                    // of the screen share one scale. See the ISSUE #12 note above.
                     uint32_t downsampleMultiplier = workloadConfig.downsampleMultiplier;
-                    if ((nativeColorHeight >= referenceMiddleHeight) && (fixedResScale[1] >= 2.0f)) {
+                    if (workloadHalveTall && (fixedResScale[1] >= 2.0f)) {
                         fixedResScale = hlslpp::max(fixedResScale / 2.0f, hlslpp::float2(1.0f, 1.0f));
                         downsampleMultiplier = std::max(downsampleMultiplier / 2U, 1U);
                     }

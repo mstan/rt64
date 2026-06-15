@@ -5,6 +5,10 @@
 #include "rt64_rdp.h"
 
 #include <cassert>
+#include <atomic>
+#include <mutex>
+#include <cstdio>
+#include <cstdlib>
 
 #include "../include/rt64_extended_gbi.h"
 
@@ -248,6 +252,32 @@ namespace RT64 {
             colorImage.width = width;
             colorImage.address = newAddress;
             colorImage.changed = true;
+
+            // Diagnostic: log the first distinct color-image addresses so they
+            // can be compared against the presented VI origin (render-target vs
+            // scanout localization). Off by default; enable with RT64_CIMG_LOG=1
+            // so it doesn't spam games that aren't being debugged.
+            static const bool s_cimg_log = [](){
+                const char* v = std::getenv("RT64_CIMG_LOG");
+                return v != nullptr && v[0] != '0';
+            }();
+            if (s_cimg_log) {
+                static std::atomic<int> s_logged{0};
+                static uint32_t s_seen[32] = {0};
+                static int s_seen_n = 0;
+                static std::mutex s_mtx;
+                std::lock_guard<std::mutex> lk(s_mtx);
+                bool known = false;
+                for (int i = 0; i < s_seen_n; i++) { if (s_seen[i] == newAddress) { known = true; break; } }
+                if (!known && s_logged.load() < 32) {
+                    if (s_seen_n < 32) s_seen[s_seen_n++] = newAddress;
+                    s_logged.fetch_add(1);
+                    fprintf(stderr,
+                        "[ps2-cimg] setColorImage fmt=%u siz=%u width=%u address=0x%08X\n",
+                        fmt, siz, width, newAddress);
+                    fflush(stderr);
+                }
+            }
 
 #       ifdef LOG_COLOR_DEPTH_IMAGE_METHODS
             RT64_LOG_PRINTF("RDP::setColorImage(fmt %u, siz %u, width %u, address 0x%08X)", fmt, siz, width, address);

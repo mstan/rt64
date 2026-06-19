@@ -1200,7 +1200,12 @@ namespace RT64 {
                         decodeCB.fmt = upload.loadTile.fmt;
                         decodeCB.siz = upload.loadTile.siz;
                         decodeCB.address = interop::uint(upload.loadTile.tmem) << 3;
-                        decodeCB.stride = interop::uint(upload.loadTile.line) << 3;
+                        // YUV tiles: the N64 `line` counts the 1-byte Y bank, but RT64
+                        // decodes YUV as 2-byte interleaved [chroma,Y] texels, so the TMEM
+                        // row stride is twice the line-implied bytes. Use line<<4 (not <<3)
+                        // or the decoded rows overlap and the image scrambles. (Mirrors the
+                        // runtime tile stride in rt64_state.cpp.)
+                        decodeCB.stride = interop::uint(upload.loadTile.line) << ((upload.loadTile.fmt == G_IM_FMT_YUV) ? 4 : 3);
                         decodeCB.tlut = upload.tlut;
                         decodeCB.palette = upload.loadTile.palette;
 

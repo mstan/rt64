@@ -295,7 +295,13 @@ namespace RT64 {
                     auto &dstRDPTile = drawData.rdpTiles[drawCall.tileIndex + t];
                     dstRDPTile.fmt = tile.fmt;
                     dstRDPTile.siz = tile.siz;
-                    dstRDPTile.stride = int(tile.line) << 3;
+                    // The N64 YUV (G_IM_FMT_YUV) tile `line` counts the 1-byte-per-
+                    // texel Y bank (hardware splits Y / UV into the two TMEM banks),
+                    // but RT64 models YUV as 2-byte interleaved [chroma,Y] texels, so
+                    // its TMEM rows are twice as wide. Use line<<4 (not <<3) so the
+                    // sample row stride matches the 2-byte interleaved layout;
+                    // otherwise rows overlap and the decoded image scrambles.
+                    dstRDPTile.stride = int(tile.line) << ((tile.fmt == G_IM_FMT_YUV) ? 4 : 3);
                     dstRDPTile.address = int(tile.tmem) << 3;
                     dstRDPTile.palette = tile.palette;
                     dstRDPTile.masks = (tile.masks > 0) ? (1 << tile.masks) : 0;

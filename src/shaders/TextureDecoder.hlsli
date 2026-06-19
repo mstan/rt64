@@ -202,12 +202,17 @@ float4 sampleTMEM(int2 texelInt, uint siz, uint fmt, uint address, uint stride, 
         // (e.g. the Pocket Monsters Stadium title screen). Was previously stubbed
         // to black.
         if (fmt == G_IM_FMT_YUV && siz == G_IM_SIZ_16b) {
-            // TMEM YUYV pairs are [Y,U,Y,V]: each texel = [Y(byte0), chroma(byte1)]
-            // where chroma is U on even columns and V on odd columns; the paired
-            // chroma is the neighbor texel's byte1 (even -> V at +3, odd -> U at -1).
-            const float Y = float(pixelValue0);
-            const uint chromaThis = pixelValue1;
-            const uint nAddr = select_uint(oddColumn, pixelAddress - 1, pixelAddress + 3);
+            // Each 16-bit texel is [chroma(byte0), Y(byte1)]: byte1 carries this
+            // texel's own luma (verified against PMS-J njpeg output: byte1 holds
+            // the image luma gradient, byte0 stays near neutral chroma), byte0 is
+            // U on even columns / V on odd columns. The paired chroma comes from
+            // the horizontal neighbor's byte0 (even -> V at the next texel +2,
+            // odd -> U at the previous texel -2). NOTE: this corrects the YUV
+            // color (the title bg was solid green = chroma read as luma); a
+            // remaining texrect layout/stride issue still garbles the placement.
+            const float Y = float(pixelValue1);
+            const uint chromaThis = pixelValue0;
+            const uint nAddr = select_uint(oddColumn, pixelAddress - 2, pixelAddress + 2);
             const uint chromaOther = loadTMEMMasked(nAddr, addressMask, 0x0);
             const float U = float(select_uint(oddColumn, chromaOther, chromaThis)) - 128.0f;
             const float V = float(select_uint(oddColumn, chromaThis, chromaOther)) - 128.0f;

@@ -192,7 +192,31 @@ float4 sampleTMEM(int2 texelInt, uint siz, uint fmt, uint address, uint stride, 
         const uint orAddress = select_uint(isRgba32, (RDP_TMEM_BYTES >> 1), 0);
         const uint pixelValue2 = loadTMEMMasked(pixelAddress2 + 0, addressMask, orAddress);
         const uint pixelValue3 = loadTMEMMasked(pixelAddress2 + 1, addressMask, orAddress);
-        
+
+        // N64 YUV (G_IM_FMT_YUV, 16b) is YUYV 4:2:2: each texel carries its own Y
+        // (byte 1) and one chroma byte (byte 0) that is U on even columns / V on
+        // odd columns; the paired chroma comes from the horizontal neighbor. The
+        // RDP normally converts YUV->RGB in the color combiner via the K0..K5
+        // convert coefficients, but that path is not modeled, so convert here
+        // (BT.601) and output RGB directly. This is what draws JPEG backgrounds
+        // (e.g. the Pocket Monsters Stadium title screen). Was previously stubbed
+        // to black.
+        if (fmt == G_IM_FMT_YUV && siz == G_IM_SIZ_16b) {
+            // TMEM YUYV pairs are [Y,U,Y,V]: each texel = [Y(byte0), chroma(byte1)]
+            // where chroma is U on even columns and V on odd columns; the paired
+            // chroma is the neighbor texel's byte1 (even -> V at +3, odd -> U at -1).
+            const float Y = float(pixelValue0);
+            const uint chromaThis = pixelValue1;
+            const uint nAddr = select_uint(oddColumn, pixelAddress - 1, pixelAddress + 3);
+            const uint chromaOther = loadTMEMMasked(nAddr, addressMask, 0x0);
+            const float U = float(select_uint(oddColumn, chromaOther, chromaThis)) - 128.0f;
+            const float V = float(select_uint(oddColumn, chromaThis, chromaOther)) - 128.0f;
+            const float r = Y + 1.402f * V;
+            const float g = Y - 0.344136f * U - 0.714136f * V;
+            const float b = Y + 1.772f * U;
+            return float4(saturate(float3(r, g, b) / 255.0f), 1.0f);
+        }
+
         switch (siz) {
         case G_IM_SIZ_4b:
             return sampleTMEM4b(pixelValue4bit, fmt, palette);

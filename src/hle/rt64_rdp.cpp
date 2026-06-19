@@ -304,6 +304,33 @@ namespace RT64 {
         texture.address = maskAddress(address);
         state->updateDrawStatusAttribute(DrawAttribute::Texture);
 
+        // Diagnostic (RT64_CIMG_LOG=1): log the first distinct texture images so
+        // we can tell whether a JPEG/background buffer is ever drawn via the DL
+        // (vs. blitted straight to the framebuffer, which an HLE renderer skips).
+        static const bool s_tex_log = [](){
+            const char* v = std::getenv("RT64_CIMG_LOG");
+            return v != nullptr && v[0] != '0';
+        }();
+        if (s_tex_log) {
+            static uint32_t s_seen[1024] = {0};
+            static int s_seen_n = 0;
+            static std::mutex s_mtx;
+            const uint32_t a = maskAddress(address);
+            // Focus on the njpeg decode-output region (the title background is
+            // decoded to ~0x26Cxxxx+); log those distinctly so we can tell if it
+            // is ever drawn through the display list.
+            const bool njpeg_region = (a >= 0x00260000u && a < 0x002A0000u);
+            std::lock_guard<std::mutex> lk(s_mtx);
+            bool known = false;
+            for (int i = 0; i < s_seen_n; i++) { if (s_seen[i] == a) { known = true; break; } }
+            if (!known && s_seen_n < 1024 && (njpeg_region || s_seen_n < 64)) {
+                s_seen[s_seen_n++] = a;
+                fprintf(stderr, "[ps2-tex]%s setTextureImage fmt=%u siz=%u width=%u address=0x%08X\n",
+                        njpeg_region ? "[NJPEG?]" : "", fmt, siz, width, a);
+                fflush(stderr);
+            }
+        }
+
 #   ifdef LOG_TEXTURE_IMAGE_METHODS
         RT64_LOG_PRINTF("RDP::setTextureImage(fmt %u, siz %u, width %u, address 0x%08X)", fmt, siz, width, address);
 #   endif
@@ -509,6 +536,19 @@ namespace RT64 {
             else {
                 loadToTMEMCommon<false>(TMEM8, RDRAM, textureStart, bytesPerRow, tmemStart, tmemStride, wordsPerRow, rowCount);
             }
+            // #5 diag (RT64_CIMG_LOG): dump the first TMEM bytes of a YUV tile
+            // load to see whether the YUV texels actually land in TMEM (vs. the
+            // shader reading zeros -> green title).
+            static const bool s_yuvload_log = [](){ const char* v = std::getenv("RT64_CIMG_LOG"); return v && v[0] != '0'; }();
+            if (s_yuvload_log && loadTile.fmt == G_IM_FMT_YUV) {
+                static std::atomic<int> s_n{0};
+                if (s_n.fetch_add(1) < 4) {
+                    fprintf(stderr, "[ps2-yuvload] siz=%u tmemStart=0x%X texStart=0x%X rows=%u wpr=%u bytes:",
+                            loadTile.siz, tmemStart, textureStart, rowCount, wordsPerRow);
+                    for (int i = 0; i < 16; i++) fprintf(stderr, " %02X", TMEM8[(tmemStart + i) & RDP_TMEM_MASK8]);
+                    fprintf(stderr, "\n"); fflush(stderr);
+                }
+            }
             // Always-on TMEM-load ring (cursor/icon corruption diagnosis).
             tmemRingPush(TMEM_OP_TILE, 0, loadTile.fmt, loadTile.siz, tmemStart,
                 rowCount * tmemStride, textureStart, textureEnd - textureStart,
@@ -548,6 +588,16 @@ namespace RT64 {
             }
             else {
                 loadToTMEMCommon<false, true>(TMEM8, RDRAM, textureStart, bytesPerRow, tmemStart, tmemStride, wordCount, 1, loadTile.lrt);
+            }
+            static const bool s_yuvblk_log = [](){ const char* v = std::getenv("RT64_CIMG_LOG"); return v && v[0] != '0'; }();
+            if (s_yuvblk_log && loadTile.fmt == G_IM_FMT_YUV) {
+                static std::atomic<int> s_n{0};
+                if (s_n.fetch_add(1) < 4) {
+                    fprintf(stderr, "[ps2-yuvblock] siz=%u tmemStart=0x%X texStart=0x%X words=%u bytes:",
+                            loadTile.siz, tmemStart, textureStart, wordCount);
+                    for (int i = 0; i < 16; i++) fprintf(stderr, " %02X", TMEM8[(tmemStart + i) & RDP_TMEM_MASK8]);
+                    fprintf(stderr, "\n"); fflush(stderr);
+                }
             }
             // Always-on TMEM-load ring (cursor/icon corruption diagnosis).
             tmemRingPush(TMEM_OP_BLOCK, 0, loadTile.fmt, loadTile.siz, tmemStart,

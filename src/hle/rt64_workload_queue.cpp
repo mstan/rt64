@@ -413,6 +413,7 @@ namespace RT64 {
             RenderTarget *colorTarget;
             RenderTarget *depthTarget;
             RenderFramebufferKey fbKey;
+            bool scaleChanged;
             auto getTargetsFromPair = [&](uint32_t f) {
                 const FramebufferPair &fbPair = workload.fbPairs[f];
                 const auto &colorImg = fbPair.colorImage;
@@ -469,14 +470,26 @@ namespace RT64 {
                     rtWidth = targetWidth;
                     rtHeight = targetHeight;
 
+                    // Detect a target being REUSED at a different resolution scale (e.g.
+                    // the Pokedex model FB flipping 6x<->3x as workloadHalveTall flips with
+                    // the frame's tallest FB). resize() only grows and the max() clamps
+                    // below keep the OLD larger size, so the new smaller-scale content would
+                    // render into the top-left quadrant with the rest stale/black. When the
+                    // scale changed we skip the clamps and force the EXACT new size below.
+                    scaleChanged = (colorTarget != nullptr) && !colorTarget->isEmpty()
+                        && ((float)colorTarget->resolutionScale.x != (float)fixedResScale.x
+                            || (float)colorTarget->resolutionScale.y != (float)fixedResScale.y);
+
                     // The desired size should not be less than the existing size of the color and depth targets.
                     RenderTarget *chosenRt = nullptr;
                     if (depthFb != nullptr) {
                         fbKey.depthTargetKey = RenderTargetKey(depthFb->addressStart, depthFb->width, depthFb->siz, Framebuffer::Type::Depth);
                         depthTarget = &targetManager.get(fbKey.depthTargetKey);
                         depthTarget->resolutionScale = fixedResScale;
-                        rtWidth = std::max(rtWidth, depthTarget->width);
-                        rtHeight = std::max(rtHeight, depthTarget->height);
+                        if (!scaleChanged) {
+                            rtWidth = std::max(rtWidth, depthTarget->width);
+                            rtHeight = std::max(rtHeight, depthTarget->height);
+                        }
                         chosenRt = depthTarget;
                     }
                     else {
@@ -484,8 +497,10 @@ namespace RT64 {
                     }
 
                     if (colorTarget != nullptr) {
-                        rtWidth = std::max(rtWidth, colorTarget->width);
-                        rtHeight = std::max(rtHeight, colorTarget->height);
+                        if (!scaleChanged) {
+                            rtWidth = std::max(rtWidth, colorTarget->width);
+                            rtHeight = std::max(rtHeight, colorTarget->height);
+                        }
                         chosenRt = colorTarget;
                     }
 
@@ -494,6 +509,29 @@ namespace RT64 {
                     chosenRt->downsampleMultiplier = downsampleMultiplier;
                     chosenRt->misalignX = targetMisalignX;
                     chosenRt->invMisalignX = (targetMisalignX > 0) ? (std::lround(fixedResScale.y) - targetMisalignX) : 0;
+
+                    // DIAG (RT64_FB_LOG=1): per-FB render-target sizing/scale, deduped so
+                    // it only prints when something changes for a given color address.
+                    // Confirms the Pokedex 2nd-view artifact: a reused colorTarget keeps
+                    // its old (larger) width while resolutionScale drops -> content renders
+                    // into the top-left quadrant with black bars.
+                    static const bool s_fblog = [](){ const char* v = std::getenv("RT64_FB_LOG"); return v != nullptr && v[0] != '0'; }();
+                    if (s_fblog) {
+                        static std::mutex s_m;
+                        static std::unordered_set<uint64_t> s_seen;
+                        const uint32_t sig32 = (rtWidth & 0xFFFu) | ((rtHeight & 0xFFFu) << 12)
+                            | ((uint32_t(std::lround(fixedResScale.y)) & 0xFu) << 24)
+                            | (uint32_t(workloadHalveTall) << 28);
+                        const uint64_t key = (uint64_t(colorImg.address) << 32) | sig32;
+                        std::lock_guard<std::mutex> lk(s_m);
+                        if (s_seen.insert(key).second) {
+                            fprintf(stderr, "[fb] addr=0x%08X native=%ux%u scale=%.2f tgt=%ux%u rt=%ux%u existCT=%u halveTall=%d maxColH=%u\n",
+                                colorImg.address, nativeColorWidth, nativeColorHeight, (double)float(fixedResScale.y),
+                                targetWidth, targetHeight, rtWidth, rtHeight,
+                                (colorTarget != nullptr ? colorTarget->width : 0u), (int)workloadHalveTall, workloadMaxColorHeight);
+                            fflush(stderr);
+                        }
+                    }
 
                     assert((colorTarget != nullptr) || (depthTarget != nullptr));
                     return true;
@@ -539,9 +577,23 @@ namespace RT64 {
                         depthFb->nativeTarget.resetBufferHistory();
                     }
 
-                    if ((colorTarget != nullptr) && colorTarget->resize(ext.workloadGraphicsWorker, rtWidth, rtHeight)) {
-                        resizedTargets.emplace(colorTarget);
-                        colorFb->readHeight = 0;
+                    if (colorTarget != nullptr) {
+                        bool didResize;
+                        if (scaleChanged && ((colorTarget->width != rtWidth) || (colorTarget->height != rtHeight))) {
+                            // Scale changed on reuse: force the EXACT new size. resize()
+                            // only grows, so a 6x->3x reuse would otherwise keep the old
+                            // (larger) buffer and render the smaller content into the
+                            // top-left quadrant (the Pokedex model-viewer artifact).
+                            colorTarget->setupColor(ext.workloadGraphicsWorker, rtWidth, rtHeight);
+                            didResize = true;
+                        }
+                        else {
+                            didResize = colorTarget->resize(ext.workloadGraphicsWorker, rtWidth, rtHeight);
+                        }
+                        if (didResize) {
+                            resizedTargets.emplace(colorTarget);
+                            colorFb->readHeight = 0;
+                        }
                     }
 
                     // Set up the dummy target used for rendering the depth if no depth framebuffer is active.

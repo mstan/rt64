@@ -142,6 +142,24 @@ namespace RT64 {
                 viFb = fbManager.find(present.screenVI.fbAddress());
             }
 
+            // If the game draws a framebuffer meaningfully SHORTER than the VI scanout
+            // (e.g. the Pokedex View Data page renders 300 rows into a 476-line VI),
+            // the high-res render target only covers the top and the bottom of the
+            // screen is left black. Present the full RDRAM framebuffer instead so the
+            // uncovered rows show the persistent content from RAM — on that page the
+            // bottom holds the Pokedex flavor text + background, which was otherwise
+            // hidden by the black bar. On by default; RT64_VIFILL=0 disables. (A future
+            // refinement could keep the top high-res and fill only the bottom from RAM.)
+            static const bool s_vifill = [](){ const char* v = std::getenv("RT64_VIFILL"); return !(v != nullptr && v[0] == '0'); }();
+            static const bool s_vifill_log = [](){ const char* v = std::getenv("RT64_FB_LOG"); return v != nullptr && v[0] != '0'; }();
+            if (s_vifill && (viFb != nullptr) && !present.storage.empty()) {
+                const uint32_t viH = (uint32_t)present.screenVI.fbSize().y;
+                if ((viFb->height + 8u) < viH) {
+                    if (s_vifill_log) { fprintf(stderr, "[vifill] FB height %u < VI %u -> presenting full RDRAM\n", viFb->height, viH); fflush(stderr); }
+                    viFb = nullptr;
+                }
+            }
+
             Framebuffer *presentFb = viFb;
             
             // Show the framebuffer the debugger has requested instead.
@@ -208,6 +226,28 @@ namespace RT64 {
                 }
                 else {
                     colorTarget = nullptr;
+                }
+
+                // DIAG (RT64_FB_LOG=1): compare the VI's expected scanout size to the
+                // presented framebuffer/target. If viFB height > presentFB height, the
+                // bottom of the screen is unrendered (black bar). Deduped.
+                static const bool s_fblogP = [](){ const char* v = std::getenv("RT64_FB_LOG"); return v != nullptr && v[0] != '0'; }();
+                if (s_fblogP) {
+                    static std::mutex s_mp;
+                    static std::unordered_set<uint64_t> s_seenp;
+                    const hlslpp::uint2 viSize = present.screenVI.fbSize();
+                    const uint32_t ctW = (colorTarget != nullptr) ? colorTarget->width : 0u;
+                    const uint32_t ctH = (colorTarget != nullptr) ? colorTarget->height : 0u;
+                    const uint64_t k = (uint64_t(presentFb->addressStart) << 32)
+                        ^ (uint64_t(viSize.x & 0xFFFu) << 20) ^ (uint64_t(viSize.y & 0xFFFu) << 8)
+                        ^ (uint64_t(presentFb->height & 0xFFu));
+                    std::lock_guard<std::mutex> lk(s_mp);
+                    if (s_seenp.insert(k).second) {
+                        fprintf(stderr, "[present] viFB=%ux%u presentFB=0x%08X native=%ux%u siz=%u colorTarget=%ux%u\n",
+                            (uint32_t)viSize.x, (uint32_t)viSize.y, presentFb->addressStart, presentFb->width, presentFb->height,
+                            presentFb->siz, ctW, ctH);
+                        fflush(stderr);
+                    }
                 }
 
                 if (!present.paused && (viHistory.top().vi != present.screenVI)) {

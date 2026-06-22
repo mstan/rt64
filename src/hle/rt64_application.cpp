@@ -133,6 +133,17 @@ namespace RT64 {
         case UserConfiguration::GraphicsAPI::D3D12:
 #       ifdef _WIN64
             renderInterface = CreateD3D12Interface();
+            // D3D12 interface creation can fail — or, on a broken/missing D3D12
+            // runtime, crash inside the D3D12 DLL (issue #11 "Doesn't open at
+            // all": an access violation in D3D12GetInterface before any game
+            // code runs). CreateD3D12Interface() is SEH-guarded so such a crash
+            // surfaces here as nullptr instead of killing the process; when the
+            // user left the API on Automatic, fall back to Vulkan.
+            if (renderInterface == nullptr && userConfig.graphicsAPI == UserConfiguration::GraphicsAPI::Automatic) {
+                fprintf(stderr, "D3D12 unavailable; falling back to Vulkan.\n");
+                renderInterface = CreateVulkanInterfaceWrapper(appWindow->windowHandle);
+                chosenGraphicsAPI = UserConfiguration::GraphicsAPI::Vulkan;
+            }
             break;
 #       else
             fprintf(stderr, "D3D12 is not supported on this platform. Please select a different Graphics API.\n");
@@ -161,6 +172,19 @@ namespace RT64 {
 
         // Create the render device
         device = renderInterface->createDevice();
+        // D3D12 produced an interface but no compatible device. On Automatic,
+        // try Vulkan before giving up (issue #11) — a machine that can't make a
+        // D3D12 device may still have a working Vulkan driver.
+        if (device == nullptr
+                && chosenGraphicsAPI == UserConfiguration::GraphicsAPI::D3D12
+                && userConfig.graphicsAPI == UserConfiguration::GraphicsAPI::Automatic) {
+            fprintf(stderr, "No compatible D3D12 device; falling back to Vulkan.\n");
+            renderInterface = CreateVulkanInterfaceWrapper(appWindow->windowHandle);
+            if (renderInterface != nullptr) {
+                chosenGraphicsAPI = UserConfiguration::GraphicsAPI::Vulkan;
+                device = renderInterface->createDevice();
+            }
+        }
         if (device == nullptr) {
             fprintf(stderr, "Unable to find compatible graphics device.\n");
             return SetupResult::GraphicsDeviceNotFound;

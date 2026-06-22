@@ -3673,9 +3673,41 @@ namespace RT64 {
     }
 
     // Global creation function.
-    
+
+    // Construct the D3D12 interface under SEH so a hard crash inside the D3D12
+    // runtime (a broken/missing D3D12 DLL or a machine with no compatible
+    // driver) is caught and turned into a clean nullptr, instead of an
+    // unhandled access violation that takes the whole process down before any
+    // window appears (issue #11 "Doesn't open at all" — the reported crash is
+    // an AV in D3D12GetInterface with an empty trace ring, i.e. pre-game). The
+    // caller (rt64_application.cpp) falls back to Vulkan when the API is
+    // Automatic.
+    //
+    // This helper deliberately holds only a raw pointer (no C++ object that
+    // requires stack unwinding), which is what lets __try/__except coexist with
+    // the rest of this translation unit.
+    static D3D12Interface *createD3D12InterfaceGuarded() {
+#   ifdef _WIN64
+        // Optional self-test: force D3D12 creation to "fail" so the Vulkan
+        // fallback path can be exercised on machines where D3D12 works fine.
+        if (const char *force = getenv("RT64_TEST_FORCE_D3D12_FAIL"); force != nullptr && force[0] != '\0' && force[0] != '0') {
+            fprintf(stderr, "RT64_TEST_FORCE_D3D12_FAIL set: pretending D3D12 is unavailable.\n");
+            return nullptr;
+        }
+        __try {
+            return new D3D12Interface();
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            fprintf(stderr, "D3D12 initialization crashed (SEH 0x%lX); treating D3D12 as unavailable.\n", (unsigned long)GetExceptionCode());
+            return nullptr;
+        }
+#   else
+        return new D3D12Interface();
+#   endif
+    }
+
     std::unique_ptr<RenderInterface> CreateD3D12Interface() {
-        std::unique_ptr<D3D12Interface> createdInterface = std::make_unique<D3D12Interface>();
-        return createdInterface->isValid() ? std::move(createdInterface) : nullptr;
+        std::unique_ptr<D3D12Interface> createdInterface(createD3D12InterfaceGuarded());
+        return (createdInterface && createdInterface->isValid()) ? std::move(createdInterface) : nullptr;
     }
 };

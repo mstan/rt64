@@ -64,7 +64,7 @@ LIBRARY_EXPORT bool RasterPS(const RenderParams rp, float4 vertexPosition, float
     int2 pixelPosSeed = floor(vertexPosition.xy);
     uint randomSeed = initRand(FrParams.frameCount, instanceIndex * pixelPosSeed.y * pixelPosSeed.x, 16); // TODO: Review seed.
 
-    // Handle no-nearclipping by clamping the minimum depth and manually clipping above the maximum.
+    // No near-clipping path: clamp depth at the low end and reject anything past the far limit by hand.
     if (depthClampNear) {
         // Since depth clip is disabled on the PSO so near clip can be ignored, we manually clip any values above the allowed depth.
         if (vertexPosition.z > 1.0f) {
@@ -81,12 +81,12 @@ LIBRARY_EXPORT bool RasterPS(const RenderParams rp, float4 vertexPosition, float
 #endif
 
     if (depthDecal) {
-        // Sample the depth buffer for this pixel to compare for the decal check.
+        // Read this pixel's stored depth so the decal test has something to compare against.
         int2 pixelPos = floor(vertexPosition.xy);
         uint sampleCount = 1U << renderFlagSampleCount(rp.flags);
         float surfaceDepth = sampleBackgroundDepth(pixelPos, sampleCount);
 
-        // Calculate the decal depth tolerance based on the depth derivatives (or the prim dz value if prim depth source is enabled).
+        // Derive the decal tolerance from the depth gradient, or from the prim dz when prim depth is the source.
         float dz;
         if (zSourcePrim) {
             dz = instanceRDPParams[instanceIndex].primDepth.y;
@@ -95,7 +95,7 @@ LIBRARY_EXPORT bool RasterPS(const RenderParams rp, float4 vertexPosition, float
             dz = (abs(ddx(vertexPosition.z)) + abs(ddy(vertexPosition.z))) * FbParams.resolutionScale.y;
         }
 
-        // Perform the decal depth tolerance check.
+        // Apply the decal tolerance test.
         const float DepthTolerance = max(CoplanarDepthTolerance(surfaceDepth), dz);
         const float pixelDepth = select(depthClampNear, max(vertexPosition.z, 0.0f), vertexPosition.z);
         if (abs(pixelDepth - surfaceDepth) > DepthTolerance) {

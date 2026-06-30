@@ -22,53 +22,58 @@ namespace RT64 {
     }
 
     void Timer::preciseSleepUntil(const Timestamp endTime) {
-        auto startTime = std::chrono::high_resolution_clock::now();
-        int64_t remainingNanoseconds = std::chrono::duration_cast<std::chrono::nanoseconds>(endTime - startTime).count();
-        if (remainingNanoseconds < 0) {
+        using clock = std::chrono::high_resolution_clock;
+
+        // Work in fractional seconds for the running estimate; bail out if the
+        // deadline is already behind us.
+        const double secondsLeft0 = std::chrono::duration<double>(endTime - clock::now()).count();
+        if (secondsLeft0 <= 0.0) {
             return;
         }
-        double remainingSeconds = remainingNanoseconds / 1'000'000'000.0;
+        double secondsLeft = secondsLeft0;
 
-        // Duration of the fixed sleep, in nanoseconds.
-        constexpr int64_t fixedSleepDuration = 100'000;
-        // Upper bounds of the fixed sleep. Any durations above this will be ignored when
-        // updating the fixed sleep statistics.
-        constexpr int64_t fixedSleepUpperBound = 2'000'000;
-        // Number of standard deviations to use as the upper bounds for the duration estimate.
-        constexpr double estimateStddevCount = 2.0;
+        // Length of each coarse sleep request.
+        constexpr int64_t coarseSleepNanos = 100'000;
+        // Coarse sleeps that overrun this are treated as outliers and excluded
+        // from the running statistics (expressed in seconds).
+        constexpr double outlierSeconds = 2'000'000 / 1'000'000'000.0;
+        // How many standard deviations of headroom the estimate carries.
+        constexpr double sigmaMargin = 2.0;
+        constexpr double coarseSleepSeconds = coarseSleepNanos / 1'000'000'000.0;
 
-        // Statistics to keep track of the actual fixed sleep performance.
-        thread_local double fixedSleepEstimate = fixedSleepDuration / 1'000'000'000.0;
-        thread_local double mean = fixedSleepDuration / 1'000'000'000.0;
-        thread_local double m2 = 0;
-        thread_local uint64_t fixedSleepTotalCount = 1;
-        
-        // If the duration left to sleep is at least twice that of the nanosleep interval, use nanosleeps until the duration is too short for them to fit.
-        auto waitStart = std::chrono::high_resolution_clock::now();
-        while (remainingSeconds > fixedSleepEstimate) {
-            // Perform a fixed sleep and measure the time that actually passed.
-            std::this_thread::sleep_for(std::chrono::nanoseconds(fixedSleepDuration));
-            auto afterSleep = std::chrono::high_resolution_clock::now();
-            double measuredDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(afterSleep - waitStart).count() / 1'000'000'000.0;
+        // Welford accumulators for the observed coarse-sleep duration. They are
+        // thread_local so the estimate keeps improving across successive calls.
+        thread_local double estimate = coarseSleepSeconds;
+        thread_local double runningMean = coarseSleepSeconds;
+        thread_local double sumSqDiff = 0.0;
+        thread_local uint64_t sampleCount = 1;
 
-            // Adjust the remaining time based on the real duration of the fixed sleep.
-            remainingSeconds -= measuredDuration;
+        // While there is comfortably more than one coarse sleep left to wait,
+        // keep sleeping and fold each measured duration back into the estimate.
+        Timestamp mark = clock::now();
+        while (secondsLeft > estimate) {
+            std::this_thread::sleep_for(std::chrono::nanoseconds(coarseSleepNanos));
 
-            // Update the fixed sleep statistics if the sleep was within the expected bounds.
-            if (measuredDuration < fixedSleepUpperBound / 1'000'000'000.0) {
-                fixedSleepTotalCount++;
+            const Timestamp woke = clock::now();
+            const double observed = std::chrono::duration<double>(woke - mark).count();
+            mark = woke;
 
-                double delta = measuredDuration - mean;
-                mean += delta / fixedSleepTotalCount;
-                m2 += delta * (measuredDuration - mean);
-                double stddev = sqrt(m2 / (fixedSleepTotalCount - 1));
-                fixedSleepEstimate = mean + estimateStddevCount * stddev;
+            secondsLeft -= observed;
+
+            // Fold well-behaved samples into the running mean/variance and refresh
+            // the estimate; skip pathological scheduling stalls.
+            if (observed < outlierSeconds) {
+                ++sampleCount;
+                const double diff = observed - runningMean;
+                runningMean += diff / sampleCount;
+                sumSqDiff += diff * (observed - runningMean);
+                const double stddev = sqrt(sumSqDiff / (sampleCount - 1));
+                estimate = runningMean + sigmaMargin * stddev;
             }
-
-            waitStart = afterSleep;
         }
 
-        // Spin until the end time is reached.
-        while (std::chrono::high_resolution_clock::now() < endTime);
+        // Burn the final sub-sleep slice on a busy wait for tight accuracy.
+        while (clock::now() < endTime) {
+        }
     }
 };

@@ -108,7 +108,7 @@ namespace RT64 {
 
     constexpr uint32_t ExtendedMask = 0x80000000U;
 
-    // Masks addresses as the RSP DMA hardware would.
+    // Applies the physical-address masking the RSP DMA engine performs in hardware.
     template<uint32_t mask> uint32_t RSP::maskPhysicalAddress(uint32_t address) {
         if (state->extended.extendRDRAM && ((address & ExtendedMask) == ExtendedMask)) {
             return address - ExtendedMask;
@@ -118,7 +118,7 @@ namespace RT64 {
         }
     }
 
-    // Performs a lookup in the segment table to convert the given address.
+    // Resolves a segmented address through the segment table.
     uint32_t RSP::fromSegmented(uint32_t segAddress) {
         if (state->extended.extendRDRAM && ((segAddress & ExtendedMask) == ExtendedMask)) {
             return segAddress;
@@ -128,8 +128,8 @@ namespace RT64 {
         }
     }
 
-    // Converts the given segmented address and then applies the RSP DMA physical address mask.
-    // Used in cases where the RSP performs a DMA with a segmented address as the input. 
+    // Resolves a segmented address and then masks the result for RSP DMA.
+    // Convenience wrapper for the common case where a DMA's source is a segmented address.
     uint32_t RSP::fromSegmentedMasked(uint32_t segAddress) {
         return maskPhysicalAddress<0x00FFFFF8>(fromSegmented(segAddress));
     }

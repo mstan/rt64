@@ -49,7 +49,7 @@ float4 sampleTMEM4b(uint pixelValue4bit, uint fmt, uint palette) {
     case G_IM_FMT_IA:
         return sampleTMEMIA4(pixelValue4bit);
     case G_IM_FMT_I:
-    case G_IM_FMT_RGBA: // Not a real format. Replicated by observing hardware behavior.
+    case G_IM_FMT_RGBA: // No genuine 4-bit RGBA exists; hardware reads it as intensity.
         return sampleTMEMI4(pixelValue4bit);
     case G_IM_FMT_YUV:
     default:
@@ -70,8 +70,8 @@ float4 sampleTMEM8b(uint pixelValue0, uint fmt) {
     case G_IM_FMT_IA:
         return sampleTMEMIA8(pixelValue0);
     case G_IM_FMT_I:
-    case G_IM_FMT_RGBA: // Not a real format. Replicated by observing hardware behavior.
-    case G_IM_FMT_CI: // CI behaves like I when a TLUT is not active.
+    case G_IM_FMT_RGBA: // No genuine 8-bit RGBA exists; hardware reads it as intensity.
+    case G_IM_FMT_CI: // With no active TLUT, CI decodes the same as intensity.
         return sampleTMEMI8(pixelValue0);
     case G_IM_FMT_YUV:
     default:
@@ -151,28 +151,29 @@ float4 sampleTMEM(int2 texelInt, uint siz, uint fmt, uint address, uint stride, 
     const bool oddColumn = (texelInt.x & 1);
     const bool isRgba32 = and(fmt == G_IM_FMT_RGBA, siz == G_IM_SIZ_32b);
     const bool usesTlut = tlut > 0;
-    // Determine the left shift to use to calculate the TMEM address. Effectively log2 of the pixel stride in half-bytes.
-    //   4-bit (siz 0) -> 0
-    //   8-bit (siz 1) -> 1
-    //   16-bit (siz 2) -> 2
-    //   32-bit (siz 3) -> 3
-    //   RGBA32 (siz 3) -> 2 (32-bit RGBA textures sample both halves of TMEM, so their pixel stride is only 16 bits).
+    // Pick the shift that turns a texel X into a TMEM byte offset: it is the base-2
+    // log of the per-pixel stride measured in nibbles, so each size maps as
+    //   siz 0 (4bpp)  -> 0
+    //   siz 1 (8bpp)  -> 1
+    //   siz 2 (16bpp) -> 2
+    //   siz 3 (32bpp) -> 3
+    // RGBA32 is the exception: it spans both TMEM banks and strides like 16bpp -> 2.
     const uint tmemShift = select_uint(isRgba32, 2, siz);
 
     // Determine the TMEM address mask. When using RGBA32 or TLUT, each sample only addresses half of TMEM.
     const uint addressMask = select_uint(or(isRgba32, usesTlut), RDP_TMEM_MASK16, RDP_TMEM_MASK8);
 
-    // Load the two low samples for most formats.
+    // Fetch the two low bytes that most formats decode from.
     const uint pixelAddress = texelInt.y * stride + ((texelInt.x << tmemShift) >> 1);
     const uint pixelValue0 = loadTMEMMasked(pixelAddress + 0, addressMask, 0x0);
     const uint pixelValue1 = loadTMEMMasked(pixelAddress + 1, addressMask, 0x0);
 
-    // Calculate value for 4-bit formats.
+    // Isolate the nibble that the 4bpp formats use.
     const uint pixelShift = select_uint(oddColumn, 0, 4);
     const uint pixelValue4bit = (pixelValue0 >> pixelShift) & 0xF;
 
     if (usesTlut) {
-        // Determine the palette index and load the value from the palette.
+        // Form the palette index and read the corresponding palette entry.
         const uint paletteAddress = select_uint(siz == G_IM_SIZ_4b,
             RDP_TMEM_PALETTE + (palette << 7) + ((pixelValue4bit) << 3),
             RDP_TMEM_PALETTE + (pixelValue0 << 3));
@@ -187,7 +188,7 @@ float4 sampleTMEM(int2 texelInt, uint siz, uint fmt, uint address, uint stride, 
         }
     }
     else {
-        // Load the two high samples for 32-bit textures.
+        // Fetch the two high bytes that 32-bit textures need.
         const uint pixelAddress2 = select_uint(isRgba32, pixelAddress, pixelAddress + 2);
         const uint orAddress = select_uint(isRgba32, (RDP_TMEM_BYTES >> 1), 0);
         const uint pixelValue2 = loadTMEMMasked(pixelAddress2 + 0, addressMask, orAddress);

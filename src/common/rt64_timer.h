@@ -15,7 +15,7 @@ namespace RT64 {
         static void initialize();
         static Timestamp current();
         static int64_t deltaMicroseconds(const Timestamp t1, const Timestamp t2);
-        // Sleeps until the given timestamp by using a series of fixed-duration sleeps followed by spinning for the last bit of the duration.
+        // Blocks until endTime: coarse fixed-length sleeps cover the bulk of the wait, then a busy spin handles the final remainder.
         static void preciseSleepUntil(const Timestamp endTime);
     };
 };

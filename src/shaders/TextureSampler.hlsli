@@ -269,7 +269,7 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
     RDPMipLevels[1] = 0;
     float mip;
 
-    // Determine the RDP sample count and mip levels.
+    // Work out how many RDP samples to take and which mip levels they come from.
     if (flagHasMipmaps) {
         // Retrieve the dimensions of the texture for either type of sampler.
         Texture2D texture = gTextures[NonUniformResourceIndex(gpuTile.textureIndex)];
@@ -321,7 +321,7 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
     
     float4 textureSamples[2];
 
-    // Perform the RDP sampling.
+    // Take the RDP samples.
 #if USE_FOR_LOOPS
     [unroll]
     for (uint i = 0; i < numRDPSamples; i++) {
@@ -335,7 +335,7 @@ float4 sampleTexture(OtherMode otherMode, RenderFlags renderFlags, float2 inputU
     }
 #endif
 
-    // Compute the result from the RDP samples.
+    // Combine the RDP samples into the final result.
     float4 textureColor;
     if (!flagHasMipmaps) {
         textureColor = textureSamples[0];

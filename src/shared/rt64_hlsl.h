@@ -249,7 +249,7 @@ namespace interop {
         static float4x4 identity() { return FLOAT4X4_IDENTITY; }
     };
 
-    // Wrappers for select to prevent implicit casting to float.
+    // Typed select() wrappers that keep the operands from being implicitly promoted to float.
     inline uint select_uint(bool cond, uint val1, uint val2) {
         return cond ? val1 : val2;
     }
@@ -266,7 +266,7 @@ namespace interop {
 
 #define constmethod
 
-// Wrappers for select to prevent implicit casting to float.
+// Typed select() wrappers that keep the operands from being implicitly promoted to float.
 uint select_uint(bool cond, uint val1, uint val2) {
     return select(cond, val1, val2);
 }
